@@ -1,18 +1,24 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useBlogStore } from '../../stores/blog'
+import { useBlogStore, type BlogPost } from '../../stores/blog'
+import { useCommentStore } from '../../stores/comment'
 import { Calendar, Eye, User, Tag, ArrowLeft, Share2, ThumbsUp, MessageCircle } from 'lucide-vue-next'
 
 const route = useRoute()
 const router = useRouter()
 const blogStore = useBlogStore()
+const commentStore = useCommentStore()
 
 const postId = route.params.id as string
-const post = computed(() => blogStore.getPostById(postId))
+const post = ref<BlogPost | null>(null)
+const loading = ref(true)
+const error = ref<string | null>(null)
+const isLiked = ref(false)
+const liking = ref(false)
 
 // 评论相关状态
-const comments = computed(() => blogStore.getCommentsForPost(postId))
+const comments = computed(() => commentStore.getLocalCommentsForPost(postId))
 const newComment = ref({
   author: '',
   email: '',
@@ -32,9 +38,6 @@ const relatedPosts = computed(() => {
     .slice(0, 3)
 })
 
-// 目录
-const tableOfContents = ref<{ id: string; title: string; level: number }[]>([])
-
 const formatDate = (dateString: string) => {
   return new Date(dateString).toLocaleDateString('zh-CN', {
     year: 'numeric',
@@ -50,27 +53,61 @@ const getReadingTime = (content: string) => {
   return Math.ceil(wordCount / wordsPerMinute)
 }
 
-const submitComment = () => {
+const toggleLike = async () => {
+  if (!post.value || liking.value) {
+    return
+  }
+  
+  liking.value = true
+  
+  try {
+    const result = await blogStore.toggleLike(Number(post.value.id))
+    
+    // 更新點讚狀態
+    isLiked.value = result.isLiked
+    
+    // 強制刷新響應式數據
+    if (post.value) {
+      post.value = { ...post.value, likeCount: result.newLikeCount }
+    }
+  } catch (error) {
+    console.error('點讚操作失敗:', error)
+    // 顯示錯誤提示
+    alert((error as any)?.message || '操作失敗，請稍後再試')
+  } finally {
+    liking.value = false
+  }
+}
+
+const submitComment = async () => {
   if (!newComment.value.author || !newComment.value.content) {
     alert('请填写必要的信息')
     return
   }
 
-  blogStore.addComment({
-    postId: postId,
-    author: newComment.value.author,
-    email: newComment.value.email,
-    content: newComment.value.content
-  })
+  try {
+    await commentStore.addComment({
+      postId: postId,
+      author: newComment.value.author,
+      email: newComment.value.email,
+      content: newComment.value.content
+    })
 
-  // 重置表单
-  newComment.value = {
-    author: '',
-    email: '',
-    content: ''
+    // 重置表单
+    newComment.value = {
+      author: '',
+      email: '',
+      content: ''
+    }
+
+    alert('评论已提交，等待审核')
+    
+    // 重新獲取評論列表
+    await commentStore.getCommentsForPost(Number(postId))
+  } catch (error) {
+    alert('提交評論失敗，請稍後再試')
+    console.error('Submit comment error:', error)
   }
-
-  alert('评论已提交，等待审核')
 }
 
 const sharePost = async () => {
@@ -91,41 +128,83 @@ const sharePost = async () => {
   }
 }
 
-const generateTableOfContents = () => {
-  if (!post.value) return
-  
-  // 这里可以解析文章内容中的标题来生成目录
-  // 简化示例
-  tableOfContents.value = [
-    { id: 'introduction', title: '引言', level: 2 },
-    { id: 'main-content', title: '主要内容', level: 2 },
-    { id: 'conclusion', title: '总结', level: 2 }
-  ]
-}
 
-const scrollToSection = (id: string) => {
-  const element = document.getElementById(id)
-  if (element) {
-    element.scrollIntoView({ behavior: 'smooth' })
+
+// 獲取文章數據
+const fetchPost = async () => {
+  try {
+    loading.value = true
+    error.value = null
+    
+    const fetchedPost = await blogStore.getPostById(Number(postId))
+    
+    if (!fetchedPost) {
+      error.value = '文章未找到'
+      return
+    }
+    
+    post.value = fetchedPost
+    
+    // 增加阅读量
+    blogStore.incrementViewCount(Number(postId))
+    
+    // 檢查本次會話是否已點讚
+    isLiked.value = blogStore.isPostLikedInSession(Number(postId))
+    
+    // 獲取評論
+    await commentStore.getCommentsForPost(Number(postId))
+    
+  } catch (err) {
+    console.error('Error fetching post:', err)
+    error.value = '加載文章失敗'
+  } finally {
+    loading.value = false
   }
 }
 
-onMounted(() => {
-  if (!post.value) {
-    router.push('/blog')
-    return
+onMounted(async () => {
+  // 确保博客數據已初始化
+  if (blogStore.posts.length === 0) {
+    await blogStore.initialize()
   }
-
-  // 增加阅读量
-  blogStore.incrementViewCount(postId)
   
-  // 生成目录
-  generateTableOfContents()
+  await fetchPost()
 })
 </script>
 
 <template>
-  <div v-if="post" class="min-h-screen bg-gray-50">
+  <!-- 加載狀態 -->
+  <div v-if="loading" class="min-h-screen bg-gray-50 flex items-center justify-center">
+    <div class="text-center">
+      <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+      <p class="text-gray-600">正在加載文章...</p>
+    </div>
+  </div>
+
+  <!-- 錯誤狀態 -->
+  <div v-else-if="error" class="min-h-screen bg-gray-50 flex items-center justify-center">
+    <div class="text-center">
+      <h2 class="text-2xl font-bold text-gray-900 mb-4">{{ error }}</h2>
+      <p class="text-gray-600 mb-6">抱歉，無法加載文章內容。</p>
+      <div class="space-x-4">
+        <button
+          @click="fetchPost"
+          class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          重試
+        </button>
+        <button
+          @click="$router.push('/blog')"
+          class="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+        >
+          返回博客列表
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 文章內容 -->
+  <div v-else-if="post" class="min-h-screen bg-gray-50">
     <!-- 文章头部 -->
     <header class="bg-white border-b">
       <div class="container mx-auto px-4 py-8">
@@ -224,9 +303,29 @@ onMounted(() => {
             <div class="border-t bg-gray-50 px-8 py-6">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-4">
-                  <button class="flex items-center text-gray-600 hover:text-red-500 transition-colors">
-                    <ThumbsUp class="w-4 h-4 mr-1" />
-                    <span>点赞</span>
+                                      <button 
+                      @click="toggleLike"
+                      :disabled="liking"
+                    :class="[
+                      'flex items-center transition-colors group',
+                      isLiked 
+                        ? 'text-red-500 cursor-not-allowed opacity-70' 
+                        : liking
+                        ? 'text-gray-400 cursor-not-allowed'
+                        : 'text-gray-600 hover:text-red-500'
+                    ]"
+                  >
+                    <ThumbsUp 
+                      :class="[
+                        'w-4 h-4 mr-1 transition-transform',
+                        !isLiked && !liking ? 'group-hover:scale-110' : '',
+                        isLiked ? 'fill-current' : ''
+                      ]" 
+                    />
+                    <span>
+                      {{ post.likeCount || 0 }} 
+                      {{ liking ? '處理中...' : isLiked ? '取消點讚' : '點讚' }}
+                    </span>
                   </button>
                   
                   <button class="flex items-center text-gray-600 hover:text-blue-500 transition-colors">
@@ -356,22 +455,6 @@ onMounted(() => {
 
         <!-- 侧边栏 -->
         <aside class="lg:w-1/3">
-          <!-- 目录 -->
-          <div v-if="tableOfContents.length > 0" class="bg-white rounded-lg shadow-md p-6 mb-6 sticky top-8">
-            <h4 class="text-lg font-semibold text-gray-900 mb-4">文章目录</h4>
-            <nav class="space-y-2">
-              <button
-                v-for="item in tableOfContents"
-                :key="item.id"
-                @click="scrollToSection(item.id)"
-                class="block w-full text-left text-gray-600 hover:text-blue-600 transition-colors"
-                :style="{ paddingLeft: `${(item.level - 1) * 0.75}rem` }"
-              >
-                {{ item.title }}
-              </button>
-            </nav>
-          </div>
-
           <!-- 作者信息 -->
           <div class="bg-white rounded-lg shadow-md p-6">
             <h4 class="text-lg font-semibold text-gray-900 mb-4">关于作者</h4>

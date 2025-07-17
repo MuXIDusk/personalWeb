@@ -26,9 +26,9 @@ const socialLinks = [
       <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
         <!-- 个人信息 -->
         <div class="md:col-span-2">
-          <h3 class="text-xl font-bold mb-4">{{ userStore.profile.name }}</h3>
+          <h3 class="text-xl font-bold mb-4">{{ userStore.profile?.name || '個人網站' }}</h3>
           <p class="text-gray-300 mb-4 max-w-md">
-            {{ userStore.profile.bio }}
+            {{ userStore.profile?.bio || '歡迎來到我的個人網站' }}
           </p>
           <div class="flex space-x-4">
             <a
@@ -64,11 +64,11 @@ const socialLinks = [
         <div>
           <h4 class="text-lg font-semibold mb-4">联系方式</h4>
           <div class="space-y-2 text-gray-300">
-            <p v-if="userStore.profile.email">
+            <p v-if="userStore.profile?.email">
               <Mail class="w-4 h-4 inline mr-2" />
               {{ userStore.profile.email }}
             </p>
-            <p v-if="userStore.profile.location">
+            <p v-if="userStore.profile?.location">
               📍 {{ userStore.profile.location }}
             </p>
           </div>
@@ -79,7 +79,7 @@ const socialLinks = [
       <div class="border-t border-gray-700 mt-8 pt-8">
         <div class="flex flex-col md:flex-row justify-between items-center">
           <p class="text-gray-400 text-sm mb-4 md:mb-0">
-            © {{ currentYear }} {{ userStore.profile.name }}. 保留所有权利。
+            © {{ currentYear }} {{ userStore.profile?.name || '個人網站' }}. 保留所有权利。
           </p>
           <p class="text-gray-400 text-sm flex items-center">
             Made with 

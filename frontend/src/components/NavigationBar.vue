@@ -33,7 +33,7 @@ const closeMenu = () => {
       <div class="flex justify-between items-center h-16">
         <!-- Logo -->
         <router-link to="/" class="flex items-center space-x-2 text-xl font-bold text-gray-800 hover:text-blue-600 transition-colors">
-          <img src="/src/assets/logo.svg" alt="Logo" class="h-8 w-8" />
+          <img src="@/assets/logo.svg" alt="Logo" class="h-8 w-8" />
           <span>个人网站</span>
         </router-link>
 

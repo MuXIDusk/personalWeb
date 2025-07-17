@@ -1,35 +1,32 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { useBlogStore } from '../../stores/blog'
-import { Search, Filter, Calendar, Eye, Tag, User, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useBlogStore, type BlogPost } from '../../stores/blog'
+import { Search, Filter, Calendar, Eye, Tag, User, ChevronLeft, ChevronRight, Loader2 } from 'lucide-vue-next'
 
 const blogStore = useBlogStore()
 
-// 响应式状态
+// 響應式狀態
 const searchQuery = ref('')
 const selectedCategory = ref('')
 const selectedTag = ref('')
 const sortBy = ref<'date' | 'views' | 'title'>('date')
+const searchResults = ref<BlogPost[]>([])
+const isSearching = ref(false)
 
-// 分页状态
+// 分頁狀態
 const currentPage = ref(1)
 const postsPerPage = ref(6)
 
-// 计算属性
+// 計算屬性
 const filteredPosts = computed(() => {
-  let posts = blogStore.publishedPosts
+  let posts = searchQuery.value ? searchResults.value : blogStore.publishedPosts
 
-  // 搜索筛选
-  if (searchQuery.value) {
-    posts = blogStore.searchPosts(searchQuery.value)
-  }
-
-  // 分类筛选
+  // 分類篩選
   if (selectedCategory.value) {
     posts = posts.filter(post => post.category === selectedCategory.value)
   }
 
-  // 标签筛选
+  // 標籤篩選
   if (selectedTag.value) {
     posts = posts.filter(post => post.tags.includes(selectedTag.value))
   }
@@ -59,7 +56,7 @@ const paginatedPosts = computed(() => {
   return filteredPosts.value.slice(start, end)
 })
 
-// 热门标签
+// 熱門標籤
 const popularTags = computed(() => {
   const tagCounts = new Map<string, number>()
   blogStore.publishedPosts.forEach(post => {
@@ -73,12 +70,36 @@ const popularTags = computed(() => {
     .map(([tag]) => tag)
 })
 
+// 按分類計算文章數量
+const getCategoryPostCount = (category: string) => {
+  return blogStore.publishedPosts.filter(post => post.category === category).length
+}
+
 // 方法
 const resetFilters = () => {
   searchQuery.value = ''
   selectedCategory.value = ''
   selectedTag.value = ''
   currentPage.value = 1
+  searchResults.value = []
+}
+
+const performSearch = async () => {
+  if (!searchQuery.value.trim()) {
+    searchResults.value = []
+    return
+  }
+
+  try {
+    isSearching.value = true
+    searchResults.value = await blogStore.searchPosts(searchQuery.value)
+    currentPage.value = 1
+  } catch (error) {
+    console.error('搜索失敗:', error)
+    searchResults.value = []
+  } finally {
+    isSearching.value = false
+  }
 }
 
 const formatDate = (dateString: string) => {
@@ -100,14 +121,22 @@ const goToPage = (page: number) => {
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
-onMounted(() => {
-  // 初始化逻辑
+// 監聽搜索查詢變化
+let searchTimeout: number
+watch(searchQuery, () => {
+  clearTimeout(searchTimeout)
+  searchTimeout = setTimeout(performSearch, 500) // 防抖搜索
+})
+
+onMounted(async () => {
+  // 初始化數據
+  await blogStore.initialize()
 })
 </script>
 
 <template>
   <div class="min-h-screen bg-gray-50">
-    <!-- 页面标题 -->
+    <!-- 頁面標題 -->
     <section class="bg-white py-16">
       <div class="container mx-auto px-4">
         <div class="text-center">
@@ -120,10 +149,30 @@ onMounted(() => {
     </section>
 
     <div class="container mx-auto px-4 py-8">
-      <div class="flex flex-col lg:flex-row gap-8">
-        <!-- 主内容区域 -->
+      <!-- 加載狀態 -->
+      <div v-if="blogStore.loading" class="flex justify-center items-center py-12">
+        <Loader2 class="w-8 h-8 animate-spin text-blue-600" />
+        <span class="ml-2 text-gray-600">加載中...</span>
+      </div>
+
+      <!-- 錯誤狀態 -->
+      <div v-else-if="blogStore.error" class="text-center py-12">
+        <div class="text-red-500 mb-4">
+          <p class="text-lg font-medium">加載失敗</p>
+          <p class="text-sm">{{ blogStore.error }}</p>
+        </div>
+        <button 
+          @click="blogStore.initialize()"
+          class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        >
+          重試
+        </button>
+      </div>
+
+      <div v-else class="flex flex-col lg:flex-row gap-8">
+        <!-- 主內容區域 -->
         <main class="lg:w-2/3">
-          <!-- 搜索和筛选 -->
+          <!-- 搜索和篩選 -->
           <div class="bg-white rounded-lg shadow-md p-6 mb-8">
             <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
               <!-- 搜索框 -->
@@ -133,11 +182,15 @@ onMounted(() => {
                   v-model="searchQuery"
                   type="text"
                   placeholder="搜索文章标题或内容..."
-                  class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  class="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <Loader2 
+                  v-if="isSearching" 
+                  class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 animate-spin" 
                 />
               </div>
 
-              <!-- 分类筛选 -->
+              <!-- 分類篩選 -->
               <select
                 v-model="selectedCategory"
                 class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -148,7 +201,7 @@ onMounted(() => {
                 </option>
               </select>
 
-              <!-- 排序选项 -->
+              <!-- 排序選項 -->
               <select
                 v-model="sortBy"
                 class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -159,16 +212,19 @@ onMounted(() => {
               </select>
             </div>
 
-            <!-- 筛选统计和重置 -->
+            <!-- 篩選統計和重置 -->
             <div class="flex justify-between items-center mt-4 pt-4 border-t border-gray-200">
               <p class="text-gray-600">
                 找到 <span class="font-semibold text-gray-800">{{ filteredPosts.length }}</span> 篇文章
+                <span v-if="searchQuery" class="text-blue-600">
+                  关于 "{{ searchQuery }}"
+                </span>
               </p>
               <button
                 @click="resetFilters"
                 class="text-blue-600 hover:text-blue-700 font-medium"
               >
-                重置筛选
+                重置篩選
               </button>
             </div>
           </div>
@@ -196,7 +252,7 @@ onMounted(() => {
                   <span class="ml-auto">{{ getReadingTime(post.content) }} 分钟阅读</span>
                 </div>
 
-                <!-- 标题和摘要 -->
+                <!-- 標題和摘要 -->
                 <h2 class="text-xl font-semibold text-gray-800 mb-3 hover:text-blue-600 transition-colors">
                   {{ post.title }}
                 </h2>
@@ -205,7 +261,7 @@ onMounted(() => {
                   {{ post.excerpt }}
                 </p>
 
-                <!-- 分类和标签 -->
+                <!-- 分類和標籤 -->
                 <div class="flex flex-wrap items-center gap-2">
                   <span class="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
                     {{ post.category }}
@@ -215,7 +271,8 @@ onMounted(() => {
                     <span
                       v-for="tag in post.tags.slice(0, 3)"
                       :key="tag"
-                      class="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs"
+                      class="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs cursor-pointer hover:bg-gray-200"
+                      @click.stop="selectedTag = tag; currentPage = 1"
                     >
                       #{{ tag }}
                     </span>
@@ -228,8 +285,8 @@ onMounted(() => {
             </div>
           </div>
 
-          <!-- 空状态 -->
-          <div v-if="paginatedPosts.length === 0" class="text-center py-12">
+          <!-- 空狀態 -->
+          <div v-if="paginatedPosts.length === 0 && !blogStore.loading" class="text-center py-12">
             <div class="text-gray-400 mb-4">
               <Search class="w-16 h-16 mx-auto" />
             </div>
@@ -240,7 +297,7 @@ onMounted(() => {
             </p>
           </div>
 
-          <!-- 分页组件 -->
+          <!-- 分頁組件 -->
           <div v-if="totalPages > 1" class="flex justify-center mt-8">
             <nav class="flex items-center space-x-2">
               <button
@@ -280,9 +337,9 @@ onMounted(() => {
           </div>
         </main>
 
-        <!-- 侧边栏 -->
+        <!-- 側邊欄 -->
         <aside class="lg:w-1/3">
-          <!-- 分类导航 -->
+          <!-- 分類導航 -->
           <div class="bg-white rounded-lg shadow-md p-6 mb-6">
             <h3 class="text-lg font-semibold text-gray-800 mb-4">文章分类</h3>
             <div class="space-y-2">
@@ -300,12 +357,12 @@ onMounted(() => {
                 class="block w-full text-left px-3 py-2 rounded-lg transition-colors"
                 :class="selectedCategory === category ? 'bg-blue-100 text-blue-800' : 'text-gray-700 hover:bg-gray-100'"
               >
-                {{ category }} ({{ blogStore.getPostsByCategory(category).length }})
+                {{ category }} ({{ getCategoryPostCount(category) }})
               </button>
             </div>
           </div>
 
-          <!-- 热门标签 -->
+          <!-- 熱門標籤 -->
           <div class="bg-white rounded-lg shadow-md p-6 mb-6">
             <h3 class="text-lg font-semibold text-gray-800 mb-4">热门标签</h3>
             <div class="flex flex-wrap gap-2">
@@ -354,7 +411,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* 文字行数限制 */
+/* 文字行數限制 */
 .line-clamp-2 {
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -369,29 +426,43 @@ onMounted(() => {
   overflow: hidden;
 }
 
-/* 过渡动画 */
+/* 過渡動畫 */
 .transition-all {
   transition-property: all;
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   transition-duration: 150ms;
 }
 
-/* 分页按钮样式 */
+/* 分頁按鈕樣式 */
 nav button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-/* 响应式优化 */
+/* 響應式優化 */
 @media (max-width: 768px) {
   .container {
     padding-left: 1rem;
     padding-right: 1rem;
   }
   
-  .grid-cols-1.md\\:grid-cols-4 {
+  .grid-cols-1.md\:grid-cols-4 {
     grid-template-columns: 1fr;
     gap: 0.75rem;
   }
+}
+
+/* 加載動畫 */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
 }
 </style> 

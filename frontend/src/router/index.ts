@@ -65,6 +65,18 @@ const routes: RouteRecordRaw[] = [
     ]
   },
   {
+    path: '/admin',
+    name: 'Admin',
+    component: () => import('../views/AdminView.vue'),
+    meta: { title: '管理後台', requiresAdminAuth: true }
+  },
+  {
+    path: '/admin/login',
+    name: 'AdminLogin',
+    component: () => import('../views/AdminLoginView.vue'),
+    meta: { title: '管理員登入' }
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
     component: () => import('../views/NotFoundView.vue'),
@@ -85,10 +97,22 @@ const router = createRouter({
 })
 
 // 全局前置守卫
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   // 设置页面标题
   if (to.meta.title) {
     document.title = `${to.meta.title} - 个人网站`
+  }
+  
+  // 管理員認證檢查
+  if (to.meta.requiresAdminAuth) {
+    // 動態導入 auth store 避免循環依賴
+    const { useAuthStore } = await import('../stores/auth')
+    const authStore = useAuthStore()
+    
+    if (!authStore.isAdminAuthenticated) {
+      next('/admin/login')
+      return
+    }
   }
   
   // 简单的权限检查（后续可以根据实际需要扩展）

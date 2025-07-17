@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useUserStore } from '../stores/user'
 import { useBlogStore } from '../stores/blog'
 import { useMediaStore } from '../stores/media'
@@ -9,12 +9,21 @@ const userStore = useUserStore()
 const blogStore = useBlogStore()
 const mediaStore = useMediaStore()
 
-// 獲取最新的博客文章（前3篇）
+// 在组件挂载时加载数据
+onMounted(async () => {
+  await Promise.all([
+    userStore.fetchProfile(),
+    blogStore.fetchPosts(),
+    mediaStore.fetchMediaItems()
+  ])
+})
+
+// 获取最新的博客文章（前3篇）
 const latestPosts = computed(() => 
   blogStore.publishedPosts.slice(0, 3)
 )
 
-// 獲取評分最高的媒體項目（前4個）
+// 获取评分最高的媒体项目（前4个）
 const featuredMedia = computed(() =>
   mediaStore.items
     .filter(item => item.rating && item.rating >= 4)
@@ -42,31 +51,38 @@ const mediaTypeLabels: Record<string, string> = {
 
 <template>
   <div class="min-h-screen">
-    <!-- Hero Section -->
-    <section class="bg-gradient-to-br from-blue-50 to-indigo-100 py-20">
-      <div class="container mx-auto px-4">
-        <div class="flex flex-col lg:flex-row items-center gap-12">
-          <!-- 个人信息 -->
-          <div class="lg:w-1/2 space-y-6">
-            <h1 class="text-4xl md:text-5xl font-bold text-gray-800 leading-tight">
-              你好，我是 
-              <span class="text-blue-600">{{ userStore.profile.name }}</span>
-            </h1>
-            <p class="text-xl text-gray-600">{{ userStore.profile.title }}</p>
-            <p class="text-lg text-gray-700 leading-relaxed">
-              {{ userStore.profile.bio }}
-            </p>
-            
-            <!-- 技能标签 -->
-            <div class="flex flex-wrap gap-2">
-              <span
-                v-for="skill in userStore.profile.skills"
-                :key="skill"
-                class="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium"
-              >
-                {{ skill }}
-              </span>
-            </div>
+    <!-- Loading State -->
+    <div v-if="userStore.loading" class="min-h-screen flex items-center justify-center">
+      <div class="text-xl text-gray-600">加载中...</div>
+    </div>
+
+    <!-- Content -->
+    <div v-else-if="userStore.profile">
+      <!-- Hero Section -->
+      <section class="bg-gradient-to-br from-blue-50 to-indigo-100 py-20">
+        <div class="container mx-auto px-4">
+          <div class="flex flex-col lg:flex-row items-center gap-12">
+            <!-- 个人信息 -->
+            <div class="lg:w-1/2 space-y-6">
+              <h1 class="text-4xl md:text-5xl font-bold text-gray-800 leading-tight">
+                你好，我是 
+                <span class="text-blue-600">{{ userStore.profile.name }}</span>
+              </h1>
+              <p class="text-xl text-gray-600">{{ userStore.profile.title }}</p>
+              <p class="text-lg text-gray-700 leading-relaxed">
+                {{ userStore.profile.bio }}
+              </p>
+              
+              <!-- 技能标签 -->
+              <div class="flex flex-wrap gap-2">
+                <span
+                  v-for="skill in userStore.profile.skills"
+                  :key="skill"
+                  class="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium"
+                >
+                  {{ skill }}
+                </span>
+              </div>
 
             <!-- CTA 按钮 -->
             <div class="flex flex-col sm:flex-row gap-4 pt-4">
@@ -208,6 +224,12 @@ const mediaTypeLabels: Record<string, string> = {
         </div>
       </div>
     </section>
+    </div>
+
+    <!-- Error State -->
+    <div v-else class="min-h-screen flex items-center justify-center">
+      <div class="text-xl text-red-600">加载失败，请重新刷新页面</div>
+    </div>
   </div>
 </template>
 

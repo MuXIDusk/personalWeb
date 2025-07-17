@@ -633,11 +633,11 @@ tbody tr:hover {
     padding-right: 1rem;
   }
   
-  .grid-cols-1.md\\:grid-cols-3 {
+  .grid-cols-1.md\:grid-cols-3 {
     grid-template-columns: 1fr;
   }
   
-  .grid-cols-1.md\\:grid-cols-2 {
+  .grid-cols-1.md\:grid-cols-2 {
     grid-template-columns: 1fr;
   }
   

@@ -1,24 +1,41 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { Lock, Eye, EyeOff, AlertTriangle, Heart, Shield, Users, CheckCircle } from 'lucide-vue-next'
+import { validatePoliticalAccess } from '@/services/api'
 
 const isAuthenticated = ref(false)
-const password = ref('')
-const showPassword = ref(false)
+const name = ref('')
 const errorMessage = ref('')
+const isLoading = ref(false)
 
-// 简单的密码验证（在实际项目中应该使用更安全的方法）
-const correctPassword = 'demo'
-
-const authenticate = () => {
-  if (password.value === correctPassword) {
-    isAuthenticated.value = true
-    errorMessage.value = ''
-  } else {
-    errorMessage.value = '密码错误，请重试'
+const authenticate = async () => {
+  if (!name.value.trim()) {
+    errorMessage.value = '请输入姓名'
     setTimeout(() => {
       errorMessage.value = ''
     }, 3000)
+    return
+  }
+
+  isLoading.value = true
+  try {
+    const response = await validatePoliticalAccess({ name: name.value.trim() })
+    if (response.data.success && response.data.data) {
+      isAuthenticated.value = true
+      errorMessage.value = ''
+    } else {
+      errorMessage.value = response.data.message || '验证失败，该姓名不在访问列表中'
+      setTimeout(() => {
+        errorMessage.value = ''
+      }, 3000)
+    }
+  } catch (error) {
+    errorMessage.value = '验证失败，请稍后重试'
+    setTimeout(() => {
+      errorMessage.value = ''
+    }, 3000)
+  } finally {
+    isLoading.value = false
   }
 }
 
@@ -124,27 +141,20 @@ const getPositionColor = (position: string) => {
           <div class="space-y-4">
             <div class="relative">
               <input
-                v-model="password"
-                :type="showPassword ? 'text' : 'password'"
-                placeholder="请输入访问密码"
+                v-model="name"
+                placeholder="请输入您的姓名"
                 class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-12"
                 @keyup.enter="authenticate"
               />
               <button
-                @click="showPassword = !showPassword"
-                class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                @click="authenticate"
+                :disabled="isLoading"
+                class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Eye v-if="!showPassword" class="w-5 h-5" />
-                <EyeOff v-else class="w-5 h-5" />
+                <Lock v-if="isLoading" class="w-5 h-5 animate-spin" />
+                <Lock v-else class="w-5 h-5" />
               </button>
             </div>
-            
-            <button
-              @click="authenticate"
-              class="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition-colors duration-200 font-medium"
-            >
-              访问内容
-            </button>
             
             <!-- 错误信息 -->
             <div v-if="errorMessage" class="text-red-600 text-sm text-center">
@@ -153,7 +163,7 @@ const getPositionColor = (position: string) => {
             
             <!-- 提示信息 -->
             <div class="text-center text-sm text-gray-500 mt-4">
-              <p>演示密码：demo</p>
+              <p>请输入您的真实姓名进行验证</p>
             </div>
           </div>
         </div>

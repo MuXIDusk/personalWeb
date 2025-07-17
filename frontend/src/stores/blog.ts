@@ -1,85 +1,55 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { blogApi, type BlogPost as ApiBlogPost, type BlogPostRequest, type Comment } from '@/services/api'
 
+// 前端BlogPost接口（與後端保持一致）
 export interface BlogPost {
-  id: string
+  id: number | string  // 保持向後兼容
   title: string
   content: string
   excerpt: string
   coverImage?: string
   category: string
   tags: string[]
-  status: 'draft' | 'published'
+  status: 'draft' | 'published' | 'DRAFT' | 'PUBLISHED'
   createdAt: string
   updatedAt: string
   publishedAt?: string
   viewCount: number
+  likeCount: number
   author: string
 }
 
 export interface BlogComment {
-  id: string
-  postId: string
+  id: number | string  // 保持向後兼容
+  postId: number | string
   author: string
   email?: string
   content: string
   createdAt: string
   approved: boolean
-  parentId?: string
+  parentId?: number | string
 }
 
 export const useBlogStore = defineStore('blog', () => {
   const posts = ref<BlogPost[]>([])
   const comments = ref<BlogComment[]>([])
-  const categories = ref<string[]>(['技术', '生活', '观点', '随笔'])
+  const categories = ref<string[]>([])
+  const tags = ref<string[]>([])
   const currentPage = ref(1)
   const postsPerPage = ref(10)
+  const loading = ref(false)
+  const error = ref<string | null>(null)
 
-  // 示例数据
-  const samplePosts: BlogPost[] = [
-    {
-      id: '1',
-      title: '欢迎来到我的个人网站',
-      content: '这是我的第一篇博客文章...',
-      excerpt: '欢迎来到我的个人网站，这里将分享我的思考和创作。',
-      category: '生活',
-      tags: ['欢迎', '第一篇'],
-      status: 'published',
-      createdAt: '2024-01-01T10:00:00Z',
-      updatedAt: '2024-01-01T10:00:00Z',
-      publishedAt: '2024-01-01T10:00:00Z',
-      viewCount: 42,
-      author: '站长'
-    },
-    {
-      id: '2',
-      title: '关于这个网站的技术架构',
-      content: '这个网站使用了Vue 3、TypeScript和Vite...',
-      excerpt: '分享一下这个个人网站的技术选型和架构设计思路。',
-      category: '技术',
-      tags: ['Vue3', 'TypeScript', 'Vite'],
-      status: 'published',
-      createdAt: '2024-01-05T14:30:00Z',
-      updatedAt: '2024-01-05T14:30:00Z',
-      publishedAt: '2024-01-05T14:30:00Z',
-      viewCount: 68,
-      author: '站长'
-    }
-  ]
-
-  // 初始化示例数据
-  if (posts.value.length === 0) {
-    posts.value = samplePosts
-  }
-
+  // 計算屬性
   const publishedPosts = computed(() => 
     posts.value
-      .filter(post => post.status === 'published')
+      .filter(post => post.status === 'published' || post.status === 'PUBLISHED')
       .sort((a, b) => new Date(b.publishedAt || b.createdAt).getTime() - new Date(a.publishedAt || a.createdAt).getTime())
   )
 
   const draftPosts = computed(() => 
-    posts.value.filter(post => post.status === 'draft')
+    posts.value.filter(post => post.status === 'draft' || post.status === 'DRAFT')
   )
 
   const totalPages = computed(() => 
@@ -93,83 +63,191 @@ export const useBlogStore = defineStore('blog', () => {
   })
 
   const allTags = computed(() => {
-    const tags = new Set<string>()
-    posts.value.forEach(post => {
-      post.tags.forEach(tag => tags.add(tag))
-    })
-    return Array.from(tags).sort()
+    return tags.value.sort()
   })
 
-  const getPostById = (id: string) => {
-    return posts.value.find(post => post.id === id)
-  }
-
-  const getPostsByCategory = (category: string) => {
-    return publishedPosts.value.filter(post => post.category === category)
-  }
-
-  const getPostsByTag = (tag: string) => {
-    return publishedPosts.value.filter(post => post.tags.includes(tag))
-  }
-
-  const searchPosts = (query: string) => {
-    const lowerQuery = query.toLowerCase()
-    return publishedPosts.value.filter(post => 
-      post.title.toLowerCase().includes(lowerQuery) ||
-      post.content.toLowerCase().includes(lowerQuery) ||
-      post.excerpt.toLowerCase().includes(lowerQuery) ||
-      post.tags.some(tag => tag.toLowerCase().includes(lowerQuery))
-    )
-  }
-
-  const addPost = (post: Omit<BlogPost, 'id' | 'createdAt' | 'updatedAt' | 'viewCount'>) => {
-    const now = new Date().toISOString()
-    const newPost: BlogPost = {
-      ...post,
-      id: Date.now().toString(),
-      createdAt: now,
-      updatedAt: now,
-      viewCount: 0
+  // API方法
+  const fetchPosts = async () => {
+    try {
+      loading.value = true
+      error.value = null
+      const response = await blogApi.getPosts()
+      posts.value = response.data.data.map(convertApiPostToFrontend)
+    } catch (err) {
+      error.value = '獲取文章列表失敗'
+      console.error('Error fetching posts:', err)
+    } finally {
+      loading.value = false
     }
-    posts.value.push(newPost)
-    return newPost
   }
 
-  const updatePost = (id: string, updates: Partial<BlogPost>) => {
-    const index = posts.value.findIndex(post => post.id === id)
-    if (index !== -1) {
-      posts.value[index] = {
-        ...posts.value[index],
-        ...updates,
-        updatedAt: new Date().toISOString()
+  const fetchAllPosts = async () => {
+    try {
+      loading.value = true
+      error.value = null
+      const response = await blogApi.getAllPosts()
+      posts.value = response.data.data.map(convertApiPostToFrontend)
+    } catch (err) {
+      error.value = '獲取所有文章失敗'
+      console.error('Error fetching all posts:', err)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const fetchCategories = async () => {
+    try {
+      const response = await blogApi.getCategories()
+      categories.value = response.data.data
+    } catch (err) {
+      console.error('Error fetching categories:', err)
+    }
+  }
+
+  const fetchTags = async () => {
+    try {
+      const response = await blogApi.getTags()
+      tags.value = response.data.data
+    } catch (err) {
+      console.error('Error fetching tags:', err)
+    }
+  }
+
+  const getPostById = async (id: number): Promise<BlogPost | null> => {
+    try {
+      const response = await blogApi.getPost(id)
+      return convertApiPostToFrontend(response.data.data)
+    } catch (err) {
+      console.error('Error fetching post:', err)
+      return null
+    }
+  }
+
+  const getPostsByCategory = async (category: string) => {
+    try {
+      loading.value = true
+      error.value = null
+      const response = await blogApi.getPostsByCategory(category)
+      return response.data.data.map(convertApiPostToFrontend)
+    } catch (err) {
+      error.value = '獲取分類文章失敗'
+      console.error('Error fetching posts by category:', err)
+      return []
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const getPostsByTag = async (tag: string) => {
+    try {
+      loading.value = true
+      error.value = null
+      const response = await blogApi.getPostsByTag(tag)
+      return response.data.data.map(convertApiPostToFrontend)
+    } catch (err) {
+      error.value = '獲取標籤文章失敗'
+      console.error('Error fetching posts by tag:', err)
+      return []
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const searchPosts = async (query: string) => {
+    try {
+      loading.value = true
+      error.value = null
+      const response = await blogApi.searchPosts(query)
+      return response.data.data.map(convertApiPostToFrontend)
+    } catch (err) {
+      error.value = '搜索文章失敗'
+      console.error('Error searching posts:', err)
+      return []
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const addPost = async (post: Omit<BlogPost, 'id' | 'createdAt' | 'updatedAt' | 'viewCount'>) => {
+    try {
+      const request: BlogPostRequest = {
+        title: post.title,
+        content: post.content,
+        excerpt: post.excerpt,
+        coverImage: post.coverImage,
+        category: post.category,
+        tags: post.tags,
+        status: post.status === 'published' ? 'PUBLISHED' : 'DRAFT',
+        author: post.author
       }
-      return posts.value[index]
+      
+      const response = await blogApi.createPost(request)
+      const newPost = convertApiPostToFrontend(response.data.data)
+      posts.value.push(newPost)
+      return newPost
+    } catch (err) {
+      error.value = '創建文章失敗'
+      console.error('Error creating post:', err)
+      throw err
+    }
+  }
+
+  const updatePost = async (id: number, updates: Partial<BlogPost>) => {
+    try {
+      const existingPost = posts.value.find(p => Number(p.id) === id)
+      if (!existingPost) throw new Error('文章不存在')
+
+      const request: BlogPostRequest = {
+        title: updates.title || existingPost.title,
+        content: updates.content || existingPost.content,
+        excerpt: updates.excerpt || existingPost.excerpt,
+        coverImage: updates.coverImage || existingPost.coverImage,
+        category: updates.category || existingPost.category,
+        tags: updates.tags || existingPost.tags,
+        status: (updates.status === 'published' || updates.status === 'PUBLISHED') ? 'PUBLISHED' : 'DRAFT',
+        author: updates.author || existingPost.author
+      }
+
+      const response = await blogApi.updatePost(id, request)
+      const updatedPost = convertApiPostToFrontend(response.data.data)
+      
+      const index = posts.value.findIndex(p => Number(p.id) === id)
+      if (index !== -1) {
+        posts.value[index] = updatedPost
+      }
+      return updatedPost
+    } catch (err) {
+      error.value = '更新文章失敗'
+      console.error('Error updating post:', err)
+      throw err
+    }
+  }
+
+  const deletePost = async (id: number) => {
+    try {
+      await blogApi.deletePost(id)
+      const index = posts.value.findIndex(p => Number(p.id) === id)
+      if (index !== -1) {
+        posts.value.splice(index, 1)
+      }
+      return true
+    } catch (err) {
+      error.value = '刪除文章失敗'
+      console.error('Error deleting post:', err)
+      throw err
+    }
+  }
+
+  const publishPost = async (id: number) => {
+    const post = posts.value.find(p => Number(p.id) === id)
+    if (post) {
+      return await updatePost(id, { status: 'PUBLISHED', publishedAt: new Date().toISOString() })
     }
     return null
   }
 
-  const deletePost = (id: string) => {
-    const index = posts.value.findIndex(post => post.id === id)
-    if (index !== -1) {
-      posts.value.splice(index, 1)
-      return true
-    }
-    return false
-  }
-
-  const publishPost = (id: string) => {
-    const post = getPostById(id)
-    if (post) {
-      post.status = 'published'
-      post.publishedAt = new Date().toISOString()
-      post.updatedAt = new Date().toISOString()
-      return true
-    }
-    return false
-  }
-
-  const incrementViewCount = (id: string) => {
-    const post = getPostById(id)
+  const incrementViewCount = (id: number | string) => {
+    const post = posts.value.find(p => p.id.toString() === id.toString())
     if (post) {
       post.viewCount++
     }
@@ -179,43 +257,120 @@ export const useBlogStore = defineStore('blog', () => {
     currentPage.value = page
   }
 
-  const addComment = (comment: Omit<BlogComment, 'id' | 'createdAt' | 'approved'>) => {
-    const newComment: BlogComment = {
-      ...comment,
-      id: Date.now().toString(),
-      createdAt: new Date().toISOString(),
-      approved: false // 需要审核
+    const likePost = async (id: number) => {
+    try {
+      // 檢查這次會話是否已經點讚過
+      const likedPosts = JSON.parse(sessionStorage.getItem('likedPosts') || '[]')
+      if (likedPosts.includes(id)) {
+        throw new Error('您已經點讚過這篇文章了')
+      }
+      
+      const response = await blogApi.likePost(id)
+      const newLikeCount = response.data.data
+      
+      // 更新本地狀態
+      const post = posts.value.find(p => Number(p.id) === id)
+      if (post) {
+        post.likeCount = newLikeCount
+      }
+      
+      // 記錄這次會話的點讚狀態
+      likedPosts.push(id)
+      sessionStorage.setItem('likedPosts', JSON.stringify(likedPosts))
+      
+      return newLikeCount
+    } catch (err: any) {
+      error.value = err.message || '點讚失敗'
+      console.error('點讚失敗:', err)
+      throw err
     }
-    comments.value.push(newComment)
-    return newComment
   }
 
-  const getCommentsForPost = (postId: string) => {
-    return comments.value
-      .filter(comment => comment.postId === postId && comment.approved)
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+  const isPostLikedInSession = (id: number) => {
+    const likedPosts = JSON.parse(sessionStorage.getItem('likedPosts') || '[]')
+    return likedPosts.includes(id)
   }
 
-  const approveComment = (id: string) => {
-    const comment = comments.value.find(c => c.id === id)
-    if (comment) {
-      comment.approved = true
-      return true
+  const toggleLike = async (id: number) => {
+    try {
+      const currentlyLiked = isPostLikedInSession(id)
+      
+      const response = await blogApi.toggleLike(id, currentlyLiked)
+      const newLikeCount = response.data.data
+      
+      // 更新本地狀態
+      const post = posts.value.find(p => Number(p.id) === id)
+      if (post) {
+        post.likeCount = newLikeCount
+      }
+      
+      // 更新 sessionStorage 中的點讚狀態
+      const likedPosts = JSON.parse(sessionStorage.getItem('likedPosts') || '[]')
+      if (currentlyLiked) {
+        // 取消點讚，從列表中移除
+        const index = likedPosts.indexOf(id)
+        if (index > -1) {
+          likedPosts.splice(index, 1)
+        }
+      } else {
+        // 添加點讚，加入列表
+        likedPosts.push(id)
+      }
+      sessionStorage.setItem('likedPosts', JSON.stringify(likedPosts))
+      
+      return { newLikeCount, isLiked: !currentlyLiked }
+    } catch (err: any) {
+      error.value = err.message || '操作失敗'
+      console.error('點讚操作失敗:', err)
+      throw err
     }
-    return false
+  }
+
+  // 工具函數：將API響應轉換為前端格式
+  const convertApiPostToFrontend = (apiPost: ApiBlogPost): BlogPost => ({
+    id: apiPost.id,
+    title: apiPost.title,
+    content: apiPost.content,
+    excerpt: apiPost.excerpt,
+    coverImage: apiPost.coverImage,
+    category: apiPost.category,
+    tags: apiPost.tags,
+    status: apiPost.status.toLowerCase() as 'draft' | 'published',
+    createdAt: apiPost.createdAt,
+    updatedAt: apiPost.updatedAt,
+    publishedAt: apiPost.publishedAt,
+    viewCount: apiPost.viewCount,
+    likeCount: apiPost.likeCount || 0,
+    author: apiPost.author
+  })
+
+  // 初始化數據
+  const initialize = async () => {
+    await Promise.all([
+      fetchPosts(),
+      fetchCategories(),
+      fetchTags()
+    ])
   }
 
   return {
     posts,
     comments,
     categories,
+    tags,
     currentPage,
     postsPerPage,
+    loading,
+    error,
     publishedPosts,
     draftPosts,
     totalPages,
     paginatedPosts,
     allTags,
+    fetchPosts,
+    fetchAllPosts,
+    fetchCategories,
+    fetchTags,
     getPostById,
     getPostsByCategory,
     getPostsByTag,
@@ -226,8 +381,9 @@ export const useBlogStore = defineStore('blog', () => {
     publishPost,
     incrementViewCount,
     setPage,
-    addComment,
-    getCommentsForPost,
-    approveComment
+    likePost,
+    toggleLike,
+    isPostLikedInSession,
+    initialize
   }
 }) 

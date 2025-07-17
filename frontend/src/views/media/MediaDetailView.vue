@@ -1,17 +1,31 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useMediaStore } from '../../stores/media'
-import { ArrowLeft, Star, Calendar, User, Tag, Link, Edit, Trash2 } from 'lucide-vue-next'
+import { useMediaStore, type MediaItem } from '../../stores/media'
+import { ArrowLeft, Star, Calendar, User, Tag, Link, Edit, Trash2, Book, Film, Tv, Palette } from 'lucide-vue-next'
 
 const route = useRoute()
 const router = useRouter()
 const mediaStore = useMediaStore()
 
-const itemId = route.params.id as string
+const itemId = Number(route.params.id)
 const itemType = route.params.type as string
 
-const item = computed(() => mediaStore.getMediaItem(itemId))
+const item = ref<MediaItem | null>(null)
+
+// 图片加载失败状态
+const failedImages = ref<Set<number>>(new Set())
+
+// 获取媒体类型图标
+const getTypeIcon = (type: string) => {
+  switch (type) {
+    case 'BOOK': return Book
+    case 'MOVIE': return Film
+    case 'TV': return Tv
+    case 'ANIME': return Palette
+    default: return Film
+  }
+}
 
 // 相关推荐
 const relatedItems = computed(() => {
@@ -70,8 +84,16 @@ const getRatingStars = (rating: number) => {
   }
 }
 
-onMounted(() => {
-  if (!item.value) {
+onMounted(async () => {
+  try {
+    const mediaItem = await mediaStore.getMediaItem(itemId)
+    if (mediaItem) {
+      item.value = mediaItem
+    } else {
+      router.push('/media')
+    }
+  } catch (error) {
+    console.error('Failed to load media item:', error)
     router.push('/media')
   }
 })
@@ -101,11 +123,22 @@ onMounted(() => {
             <!-- 封面图片 -->
             <div class="aspect-[2/3] bg-gray-200">
               <img
+                v-if="item.cover && !failedImages.has(item.id)"
                 :src="item.cover"
                 :alt="item.title"
                 class="w-full h-full object-cover"
                 loading="lazy"
+                @error="(e) => { 
+                  const target = e.target as HTMLImageElement; 
+                  if (target) {
+                    target.style.display = 'none';
+                    failedImages.add(item.id);
+                  }
+                }"
               />
+              <div v-if="!item.cover || failedImages.has(item.id)" class="w-full h-full flex items-center justify-center">
+                <component :is="getTypeIcon(item.type || 'MOVIE')" class="w-16 h-16 text-gray-400" />
+              </div>
             </div>
 
             <!-- 基本信息 -->
@@ -173,12 +206,12 @@ onMounted(() => {
               </div>
 
               <!-- 外部链接 -->
-              <div v-if="item.externalLinks" class="mt-6 pt-6 border-t border-gray-200">
+              <div v-if="item.doubanUrl || item.imdbUrl || item.malUrl" class="mt-6 pt-6 border-t border-gray-200">
                 <h4 class="text-sm font-medium text-gray-900 mb-3">外部链接</h4>
                 <div class="space-y-2">
                   <a
-                    v-if="item.externalLinks.douban"
-                    :href="item.externalLinks.douban"
+                    v-if="item.doubanUrl"
+                    :href="item.doubanUrl"
                     target="_blank"
                     rel="noopener noreferrer"
                     class="flex items-center text-sm text-blue-600 hover:text-blue-700"
@@ -187,8 +220,8 @@ onMounted(() => {
                     豆瓣页面
                   </a>
                   <a
-                    v-if="item.externalLinks.imdb"
-                    :href="item.externalLinks.imdb"
+                    v-if="item.imdbUrl"
+                    :href="item.imdbUrl"
                     target="_blank"
                     rel="noopener noreferrer"
                     class="flex items-center text-sm text-blue-600 hover:text-blue-700"
@@ -197,8 +230,8 @@ onMounted(() => {
                     IMDB 页面
                   </a>
                   <a
-                    v-if="item.externalLinks.mal"
-                    :href="item.externalLinks.mal"
+                    v-if="item.malUrl"
+                    :href="item.malUrl"
                     target="_blank"
                     rel="noopener noreferrer"
                     class="flex items-center text-sm text-blue-600 hover:text-blue-700"
@@ -279,11 +312,22 @@ onMounted(() => {
               >
                 <div class="aspect-[2/3] bg-gray-200 rounded-lg overflow-hidden mb-2">
                   <img
+                    v-if="relatedItem.cover && !failedImages.has(relatedItem.id)"
                     :src="relatedItem.cover"
                     :alt="relatedItem.title"
                     class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                     loading="lazy"
+                    @error="(e) => { 
+                      const target = e.target as HTMLImageElement; 
+                      if (target) {
+                        target.style.display = 'none';
+                        failedImages.add(relatedItem.id);
+                      }
+                    }"
                   />
+                  <div v-if="!relatedItem.cover || failedImages.has(relatedItem.id)" class="w-full h-full flex items-center justify-center">
+                    <component :is="getTypeIcon(relatedItem.type)" class="w-8 h-8 text-gray-400" />
+                  </div>
                 </div>
                 <h4 class="text-sm font-medium text-gray-900 line-clamp-2 group-hover:text-blue-600 transition-colors">
                   {{ relatedItem.title }}
@@ -342,11 +386,11 @@ onMounted(() => {
 }
 
 /* 悬停效果 */
-.group:hover .group-hover\\:scale-105 {
+.group:hover .group-hover\:scale-105 {
   transform: scale(1.05);
 }
 
-.group:hover .group-hover\\:text-blue-600 {
+.group:hover .group-hover\:text-blue-600 {
   color: #2563eb;
 }
 
@@ -357,8 +401,8 @@ onMounted(() => {
     padding-right: 1rem;
   }
   
-  .lg\\:w-1\\/3,
-  .lg\\:w-2\\/3 {
+  .lg\:w-1\/3,
+  .lg\:w-2\/3 {
     width: 100%;
   }
   

@@ -1,13 +1,20 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useUserStore } from './stores/user'
 import NavigationBar from './components/NavigationBar.vue'
 import FooterComponent from './components/FooterComponent.vue'
 
 const router = useRouter()
+const userStore = useUserStore()
 
-onMounted(() => {
-  // 可以在这里添加全局初始化逻辑
+onMounted(async () => {
+  // 全局初始化：加載用戶資料
+  try {
+    await userStore.fetchProfile()
+  } catch (error) {
+    console.error('Failed to load user profile:', error)
+  }
 })
 </script>
 
